@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>LEVI - Editor de cuestionarios</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                background: #111;
+                color: #fff;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    'Segoe UI',
+                    Roboto,
+                    sans-serif;
+            }
+
+            .contenedor {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 30px 16px 60px;
+                text-align: center;
+            }
+
+            h1 {
+                color: #e74c3c;
+                font-size: 2.6em;
+                margin: 0 0 5px;
+            }
+
+            .desc {
+                color: #aaa;
+                margin: 0 0 25px;
+            }
+
+            .titulo-input {
+                width: 100%;
+                font-size: 1.8em;
+                font-weight: bold;
+                text-align: center;
+                color: #e74c3c;
+                background: #222;
+                border: 1px solid #555;
+                border-radius: 8px;
+                padding: 10px 15px;
+                margin-bottom: 25px;
+            }
+
+            .form-panel {
+                position: relative;
+                background: #1a1a1a;
+                padding: 25px;
+                border-radius: 12px;
+                border: 1px solid #444;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+                text-align: left;
+                margin-bottom: 25px;
+            }
+
+            .form-panel h3 {
+                color: #f1c40f;
+                margin-top: 0;
+                border-bottom: 1px solid #333;
+                padding-bottom: 10px;
+            }
+
+            .controles-preg {
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                display: flex;
+                gap: 6px;
+            }
+
+            .btn-preg {
+                background: #333;
+                color: #fff;
+                border: 1px solid #555;
+                border-radius: 5px;
+                padding: 6px 10px;
+                cursor: pointer;
+            }
+
+            .btn-preg-rojo {
+                background: #c0392b;
+                border-color: #e74c3c;
+            }
+
+            .pregunta-input {
+                width: 100%;
+                font-size: 1.3em;
+                padding: 12px;
+                border-radius: 8px;
+                border: 1px solid #555;
+                background: #222;
+                color: #fff;
+                margin-bottom: 15px;
+            }
+
+            .input-group {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: center;
+                background: #222;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid #333;
+                margin-bottom: 10px;
+            }
+
+            .input-group input[type='text'],
+            .input-group input[type='number'] {
+                flex: 1 1 150px;
+                min-width: 0;
+                padding: 10px;
+                font-size: 1.05em;
+                border-radius: 5px;
+                border: 1px solid #444;
+                background: #333;
+                color: #fff;
+            }
+
+            .input-group label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: #ccc;
+                cursor: pointer;
+            }
+
+            .input-group input[type='radio'] {
+                width: 20px;
+                height: 20px;
+                accent-color: #27ae60;
+                cursor: pointer;
+            }
+
+            .grupo-sumar {
+                background: #2c3e50;
+                border-color: #2980b9;
+            }
+            .grupo-restar {
+                background: #312424;
+                border-color: #c0392b;
+            }
+            .grupo-restar label {
+                color: #e74c3c;
+            }
+            .grupo-sumar label,
+            .grupo-restar label {
+                min-width: 140px;
+            }
+
+            hr {
+                margin: 20px 0;
+                border: none;
+                border-top: 1px solid #333;
+            }
+
+            .caja-aprobacion {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: center;
+                justify-content: center;
+                background: #1a1a1a;
+                border: 1px solid #444;
+                border-radius: 12px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+
+            .caja-aprobacion input {
+                width: 100px;
+                padding: 10px;
+                font-size: 1.05em;
+                border-radius: 5px;
+                border: 1px solid #444;
+                background: #333;
+                color: #fff;
+            }
+
+            .botones-finales {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            button {
+                font-family: inherit;
+            }
+
+            .btn-verde,
+            .btn-amarillo,
+            .btn-gris,
+            .btn-rojo {
+                border: none;
+                padding: 12px 20px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 1em;
+                transition: 0.2s;
+            }
+
+            .btn-verde {
+                background: #27ae60;
+                color: #fff;
+            }
+            .btn-verde:hover {
+                background: #2ecc71;
+            }
+            .btn-amarillo {
+                background: #f1c40f;
+                color: #111;
+            }
+            .btn-amarillo:hover {
+                background: #f9e45b;
+            }
+            .btn-gris {
+                background: #555;
+                color: #fff;
+            }
+            .btn-gris:hover {
+                background: #777;
+            }
+            .btn-rojo {
+                background: #e74c3c;
+                color: #fff;
+            }
+            .btn-rojo:hover {
+                background: #c0392b;
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .botones-finales .btn-verde,
+            .botones-finales .btn-amarillo {
+                padding: 15px;
+            }
+
+            .btn-agregar-opcion {
+                width: 100%;
+                margin-top: 10px;
+                background: #333;
+            }
+
+            .btn-quitar-opcion {
+                padding: 8px 12px;
+            }
+
+            .ayuda {
+                color: #888;
+                font-size: 0.9em;
+                margin-top: 30px;
+                line-height: 1.5;
+            }
+
+            @media (max-width: 600px) {
+                h1 {
+                    font-size: 2em;
+                }
+                .titulo-input {
+                    font-size: 1.3em;
+                }
+                .form-panel {
+                    padding: 15px;
+                }
+                .controles-preg {
+                    position: static;
+                    justify-content: flex-end;
+                    margin-bottom: 15px;
+                }
+                .pregunta-input {
+                    font-size: 1em;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="contenedor">
+            <h1>Editor de cuestionarios</h1>
+            <p class="desc">Armá el cuestionario, descargalo y subilo después desde el panel de LEVI.</p>
+
+            <input id="titulo" class="titulo-input" type="text" placeholder="Título del cuestionario" />
+
+            <div id="preguntas"></div>
+
+            <div class="caja-aprobacion">
+                <label for="puntajeAprobar">Puntaje necesario para aprobar:</label>
+                <input id="puntajeAprobar" type="number" min="0" step="any" />
+            </div>
+
+            <div class="botones-finales">
+                <button id="btnAgregar" class="btn-amarillo">+ AÑADIR PREGUNTA</button>
+                <button id="btnDescargar" class="btn-verde">DESCARGAR CUESTIONARIO</button>
+                <button id="btnAbrir" class="btn-gris">ABRIR UN ARCHIVO PARA EDITARLO</button>
+                <input id="inputArchivo" type="file" accept=".json,application/json" hidden />
+            </div>
+
+            <p class="ayuda">
+                Cada cuestionario puede tener hasta 20 preguntas, y cada pregunta entre 2 y 4 opciones con una sola
+                correcta.<br />
+                En el panel de LEVI, entrá a <b>Cuestionarios → Nuevo +</b> y usá <b>CARGAR DESDE ARCHIVO</b>.
+            </p>
+        </div>
+
+        <script>
+            // Debe coincidir con config/Limites.h de la placa
+            const MAX_PREGUNTAS = 20;
+            const MIN_OPCIONES = 2;
+            const MAX_OPCIONES = 4;
+
+            const FORMATO = 'levi-cuestionario';
+            const VERSION = 1;
+
+            const nuevaPregunta = () => ({
+                pregunta: '',
+                correcta: 0,
+                puntaje: 1,
+                puntajeNegativo: 0,
+                opciones: ['', '', '', ''],
+            });
+
+            const estado = {
+                titulo: 'Nuevo Cuestionario',
+                puntajeParaAprobar: 1,
+                preguntas: [nuevaPregunta()],
+            };
+
+            const $ = (id) => document.getElementById(id);
+            const contenedorPreguntas = $('preguntas');
+
+            // -----------------------------------------------------------------------
+            // Render
+            // -----------------------------------------------------------------------
+            function crear(tag, props = {}, hijos = []) {
+                const el = document.createElement(tag);
+                Object.assign(el, props);
+                for (const h of hijos) el.append(h);
+                return el;
+            }
+
+            function render() {
+                $('titulo').value = estado.titulo;
+                $('puntajeAprobar').value = estado.puntajeParaAprobar;
+                $('btnAgregar').disabled = estado.preguntas.length >= MAX_PREGUNTAS;
+
+                contenedorPreguntas.replaceChildren(...estado.preguntas.map(renderPregunta));
+            }
+
+            function renderPregunta(preg, i) {
+                const controles = crear('div', { className: 'controles-preg' }, [
+                    crear('button', {
+                        className: 'btn-preg',
+                        textContent: '▲',
+                        title: 'Subir',
+                        onclick: () => mover(i, -1),
+                    }),
+                    crear('button', {
+                        className: 'btn-preg',
+                        textContent: '▼',
+                        title: 'Bajar',
+                        onclick: () => mover(i, 1),
+                    }),
+                    crear('button', {
+                        className: 'btn-preg btn-preg-rojo',
+                        textContent: 'X',
+                        title: 'Eliminar pregunta',
+                        onclick: () => eliminarPregunta(i),
+                    }),
+                ]);
+
+                const inputPregunta = crear('input', {
+                    id: `preg-${i}`,
+                    type: 'text',
+                    className: 'pregunta-input',
+                    placeholder: 'Escribe la pregunta aquí...',
+                    value: preg.pregunta,
+                    oninput: (e) => {
+                        preg.pregunta = e.target.value;
+                    },
+                    onkeydown: (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            $(`preg-${i}-opc-0`)?.focus();
+                        }
+                    },
+                });
+
+                const grupoPuntaje = (clase, texto, campo) => {
+                    const input = crear('input', {
+                        type: 'number',
+                        step: 'any',
+                        value: preg[campo],
+                        oninput: (e) => {
+                            preg[campo] = e.target.value;
+                        },
+                    });
+                    return crear('div', { className: `input-group ${clase}` }, [
+                        crear('label', { textContent: texto }),
+                        input,
+                        crear('button', {
+                            className: 'btn-gris',
+                            textContent: 'Aplicar a todas',
+                            onclick: () => aplicarATodas(campo, input.value),
+                        }),
+                    ]);
+                };
+
+                const opciones = preg.opciones.map((texto, iO) => {
+                    const radio = crear('input', {
+                        type: 'radio',
+                        name: `correcta-${i}`,
+                        checked: preg.correcta === iO,
+                        onchange: () => {
+                            preg.correcta = iO;
+                        },
+                    });
+
+                    const hijos = [
+                        crear('label', {}, [radio, ' Correcta']),
+                        crear('input', {
+                            id: `preg-${i}-opc-${iO}`,
+                            type: 'text',
+                            placeholder: `Opción ${iO + 1}`,
+                            value: texto,
+                            oninput: (e) => {
+                                preg.opciones[iO] = e.target.value;
+                            },
+                            onkeydown: (e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    if (iO < preg.opciones.length - 1) $(`preg-${i}-opc-${iO + 1}`)?.focus();
+                                    else $('btnAgregar').focus();
+                                }
+                            },
+                        }),
+                    ];
+
+                    if (preg.opciones.length > MIN_OPCIONES) {
+                        hijos.push(
+                            crear('button', {
+                                className: 'btn-rojo btn-quitar-opcion',
+                                textContent: 'X',
+                                title: 'Quitar opción',
+                                onclick: () => eliminarOpcion(i, iO),
+                            }),
+                        );
+                    }
+
+                    return crear('div', { className: 'input-group' }, hijos);
+                });
+
+                const panel = crear('div', { className: 'form-panel' }, [
+                    crear('h3', { textContent: `Pregunta ${i + 1}` }),
+                    controles,
+                    inputPregunta,
+                    grupoPuntaje('grupo-sumar', 'Puntaje a sumar:', 'puntaje'),
+                    grupoPuntaje('grupo-restar', 'Puntaje a restar:', 'puntajeNegativo'),
+                    crear('hr'),
+                    ...opciones,
+                ]);
+
+                if (preg.opciones.length < MAX_OPCIONES) {
+                    panel.append(
+                        crear('button', {
+                            className: 'btn-gris btn-agregar-opcion',
+                            textContent: '+ Agregar otra opción',
+                            onclick: () => agregarOpcion(i),
+                        }),
+                    );
+                }
+
+                return panel;
+            }
+
+            // -----------------------------------------------------------------------
+            // Acciones
+            // -----------------------------------------------------------------------
+            function agregarPregunta() {
+                if (estado.preguntas.length >= MAX_PREGUNTAS) return;
+                estado.preguntas.push(nuevaPregunta());
+                render();
+                $(`preg-${estado.preguntas.length - 1}`)?.focus();
+            }
+
+            function eliminarPregunta(i) {
+                if (estado.preguntas.length === 1) return alert('El cuestionario necesita al menos una pregunta.');
+                estado.preguntas.splice(i, 1);
+                render();
+            }
+
+            function mover(i, dir) {
+                const dest = i + dir;
+                if (dest < 0 || dest >= estado.preguntas.length) return;
+                [estado.preguntas[i], estado.preguntas[dest]] = [estado.preguntas[dest], estado.preguntas[i]];
+                render();
+            }
+
+            function aplicarATodas(campo, val) {
+                const numero = parseFloat(val) || 0;
+                estado.preguntas.forEach((p) => {
+                    p[campo] = numero;
+                });
+                render();
+            }
+
+            function agregarOpcion(iP) {
+                const preg = estado.preguntas[iP];
+                if (preg.opciones.length < MAX_OPCIONES) preg.opciones.push('');
+                render();
+            }
+
+            function eliminarOpcion(iP, iO) {
+                const preg = estado.preguntas[iP];
+                preg.opciones.splice(iO, 1);
+                if (preg.correcta === iO) preg.correcta = 0;
+                else if (preg.correcta > iO) preg.correcta -= 1;
+                render();
+            }
+
+            // -----------------------------------------------------------------------
+            // Descarga: mismo JSON que POST /api/cuestionarios, más formato y versión
+            // -----------------------------------------------------------------------
+            function descargar() {
+                if (!estado.titulo.trim()) return alert('El cuestionario necesita un título.');
+
+                const incompleta = estado.preguntas.some(
+                    (p) => !p.pregunta.trim() || p.opciones.length < MIN_OPCIONES || p.opciones.some((o) => !o.trim()),
+                );
+                if (incompleta) return alert('Revisa el formulario. Hay preguntas u opciones vacías.');
+
+                const datos = {
+                    formato: FORMATO,
+                    version: VERSION,
+                    titulo: estado.titulo.trim(),
+                    puntajeParaAprobar: parseFloat(estado.puntajeParaAprobar) || 0,
+                    preguntas: estado.preguntas.map((p) => ({
+                        pregunta: p.pregunta.trim(),
+                        puntajeCorrecta: parseFloat(p.puntaje) || 0,
+                        puntajeIncorrecta: parseFloat(p.puntajeNegativo) || 0,
+                        opciones: p.opciones.map((texto, idx) => ({
+                            opcion: texto.trim(),
+                            esCorrecta: idx === p.correcta,
+                        })),
+                    })),
+                };
+
+                const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const nombre = datos.titulo.replace(/[\\/:*?"<>|]+/g, '').trim() || 'cuestionario';
+
+                const a = crear('a', { href: url, download: `${nombre}.json` });
+                document.body.append(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            }
+
+            // -----------------------------------------------------------------------
+            // Abrir un archivo descargado antes para seguir editándolo
+            // -----------------------------------------------------------------------
+            function abrirArchivo(archivo) {
+                const lector = new FileReader();
+                lector.onload = () => {
+                    try {
+                        const datos = JSON.parse(lector.result);
+                        if (datos.formato !== FORMATO) throw new Error('El archivo no es un cuestionario de LEVI.');
+                        if (!Array.isArray(datos.preguntas) || datos.preguntas.length === 0)
+                            throw new Error('El archivo no tiene preguntas.');
+                        if (datos.preguntas.length > MAX_PREGUNTAS)
+                            throw new Error(`El archivo tiene más de ${MAX_PREGUNTAS} preguntas.`);
+
+                        estado.titulo = String(datos.titulo ?? '');
+                        estado.puntajeParaAprobar = datos.puntajeParaAprobar ?? 1;
+                        estado.preguntas = datos.preguntas.map((p, i) => {
+                            const opciones = Array.isArray(p.opciones) ? p.opciones : [];
+                            if (opciones.length < MIN_OPCIONES || opciones.length > MAX_OPCIONES)
+                                throw new Error(
+                                    `La pregunta ${i + 1} debe tener entre ${MIN_OPCIONES} y ${MAX_OPCIONES} opciones.`,
+                                );
+                            const correcta = opciones.findIndex((o) => o.esCorrecta);
+                            return {
+                                pregunta: String(p.pregunta ?? ''),
+                                puntaje: p.puntajeCorrecta ?? 1,
+                                puntajeNegativo: p.puntajeIncorrecta ?? 0,
+                                correcta: correcta >= 0 ? correcta : 0,
+                                opciones: opciones.map((o) => String(o.opcion ?? '')),
+                            };
+                        });
+                        render();
+                    } catch (err) {
+                        alert(err instanceof SyntaxError ? 'El archivo no es un JSON válido.' : err.message);
+                    }
+                };
+                lector.readAsText(archivo);
+            }
+
+            // -----------------------------------------------------------------------
+            // Eventos fijos
+            // -----------------------------------------------------------------------
+            $('titulo').addEventListener('input', (e) => {
+                estado.titulo = e.target.value;
+            });
+            $('puntajeAprobar').addEventListener('input', (e) => {
+                estado.puntajeParaAprobar = e.target.value;
+            });
+            $('btnAgregar').addEventListener('click', agregarPregunta);
+            $('btnDescargar').addEventListener('click', descargar);
+            $('btnAbrir').addEventListener('click', () => $('inputArchivo').click());
+            $('inputArchivo').addEventListener('change', (e) => {
+                const archivo = e.target.files[0];
+                if (archivo) abrirArchivo(archivo);
+                e.target.value = '';
+            });
+
+            render();
+        </script>
+    </body>
+</html>

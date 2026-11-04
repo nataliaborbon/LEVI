@@ -1,0 +1,952 @@
+/**
+ * @file PantallaCuestionario.jsx
+ * @brief Vista de cuestionarios unificada para profesor y tutor.
+ *
+ * Discrimina por rol:
+ *   - profesor: puede crear, editar, eliminar y controlar el estado del cuestionario.
+ *   - tutor:    solo puede listar y revisar cuestionarios finalizados.
+ */
+
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import '../panel.css';
+import Paginador from '../../components/Paginador';
+import {
+    getCuestionarios,
+    cambiarEstadoCuestionario,
+    eliminarCuestionarioPorId,
+    getRevisionCuestionario,
+    getCuestionarioCompleto,
+    crearCuestionario,
+    editarCuestionario,
+} from '../../services/api';
+
+// -----------------------------------------------------------------------
+// CONFIGURACIÓN DE ESTADOS
+// -----------------------------------------------------------------------
+
+const CONFIG_ESTADOS = {
+    PENDIENTE: {
+        color: '#e74c3c',
+        accionTxt: 'INICIAR',
+        accionApi: 'iniciar',
+        disableTrash: false,
+        disableEdit: false,
+        disableRojo: true,
+    },
+
+    EN_PROGRESO: {
+        color: '#3498db',
+        accionTxt: 'PAUSAR',
+        accionApi: 'pausar',
+        disableTrash: true,
+        disableEdit: true,
+        disableRojo: false,
+    },
+
+    PAUSADO: {
+        color: '#f1c40f',
+        accionTxt: 'REANUDAR',
+        accionApi: 'reanudar',
+        disableTrash: true,
+        disableEdit: true,
+        disableRojo: false,
+    },
+
+    FINALIZADO: {
+        color: '#27ae60',
+        accionTxt: 'REVISAR',
+        accionApi: '',
+        disableTrash: false,
+        disableEdit: true,
+        disableRojo: true,
+    },
+};
+
+// -----------------------------------------------------------------------
+// FUNCIONES DE FORMATEO
+// -----------------------------------------------------------------------
+
+const formatearTiempo = (totalSegundos) => {
+    const s = Math.max(0, Math.round(totalSegundos || 0));
+    const horas = Math.floor(s / 3600);
+    const minutos = Math.floor((s % 3600) / 60);
+    const segundos = s % 60;
+    const mm = String(minutos).padStart(2, '0');
+    const ss = String(segundos).padStart(2, '0');
+    return horas > 0 ? `${horas}:${mm}:${ss}` : `${mm}:${ss}`;
+};
+
+const formatearFecha = (fechaISO) => {
+    if (!fechaISO) return '-';
+    const fecha = new Date(fechaISO);
+    if (isNaN(fecha.getTime())) return '-';
+    return fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+// -----------------------------------------------------------------------
+// IMPORTACIÓN DESDE ARCHIVO (editor web de GitHub Pages)
+// -----------------------------------------------------------------------
+
+// Debe coincidir con config/Limites.h de la placa y con el editor web
+const MAX_PREGUNTAS = 20;
+const MIN_OPCIONES = 2;
+const MAX_OPCIONES = 4;
+
+/**
+ * Convierte el archivo descargado del editor web al estado que usa
+ * EditorCuestionario. Lanza Error si el archivo no es válido.
+ */
+const parsearArchivoCuestionario = (texto) => {
+    let datos;
+    try {
+        datos = JSON.parse(texto);
+    } catch (_) {
+        throw new Error('El archivo no es un JSON válido.');
+    }
+
+    if (datos.formato !== 'levi-cuestionario') throw new Error('El archivo no es un cuestionario de LEVI.');
+    if (!Array.isArray(datos.preguntas) || datos.preguntas.length === 0)
+        throw new Error('El archivo no tiene preguntas.');
+    if (datos.preguntas.length > MAX_PREGUNTAS) throw new Error(`El archivo tiene más de ${MAX_PREGUNTAS} preguntas.`);
+
+    const preguntas = datos.preguntas.map((p, i) => {
+        const opciones = Array.isArray(p.opciones) ? p.opciones : [];
+        if (opciones.length < MIN_OPCIONES || opciones.length > MAX_OPCIONES)
+            throw new Error(`La pregunta ${i + 1} debe tener entre ${MIN_OPCIONES} y ${MAX_OPCIONES} opciones.`);
+
+        const correctas = opciones.filter((o) => o.esCorrecta).length;
+        if (correctas !== 1) throw new Error(`La pregunta ${i + 1} debe tener exactamente una opción correcta.`);
+
+        return {
+            pregunta: String(p.pregunta ?? ''),
+            puntaje: p.puntajeCorrecta ?? 1,
+            puntajeNegativo: p.puntajeIncorrecta ?? 0,
+            correcta: opciones.findIndex((o) => o.esCorrecta),
+            opciones: opciones.map((o) => String(o.opcion ?? '')),
+        };
+    });
+
+    return {
+        titulo: String(datos.titulo ?? ''),
+        puntajeParaAprobar: datos.puntajeParaAprobar ?? 1,
+        preguntas,
+    };
+};
+
+// -----------------------------------------------------------------------
+// VISTA LISTA DE CUESTIONARIOS
+// -----------------------------------------------------------------------
+function ListaCuestionarios({
+    cuestionarios,
+    rol,
+    cargando,
+    pagina,
+    totalPaginas,
+    onCambiarPagina,
+    onNuevo,
+    onEditar,
+    onEliminar,
+    onCambiarEstado,
+    onRevisar,
+    onVolver,
+}) {
+    return (
+        <div className="panel-menu-container">
+            <div className="cuestionarios-sub-header">
+                <h3 className="sub-header-titulo">Cuestionarios</h3>
+                {rol === 'profesor' && (
+                    <button className="btn-nuevo-cues" onClick={onNuevo} disabled={cargando}>
+                        Nuevo +
+                    </button>
+                )}
+            </div>
+
+            <div className="lista-cuestionarios">
+                {cuestionarios.length === 0 ? (
+                    <p style={{ color: '#fff', textAlign: 'center' }}>No hay cuestionarios para mostrar.</p>
+                ) : (
+                    cuestionarios.map((cues) => {
+                        const estado = cues.estado.toUpperCase();
+
+                        const config = CONFIG_ESTADOS[estado] || {
+                            color: '#fff',
+                            accionTxt: '',
+                            accionApi: '',
+                            disableTrash: true,
+                            disableEdit: true,
+                            disableRojo: true,
+                        };
+
+                        const {
+                            color: colorEstado,
+                            accionTxt: txtAccion,
+                            accionApi,
+                            disableTrash,
+                            disableEdit,
+                            disableRojo,
+                        } = config;
+
+                        return (
+                            <div className="card-cuestionario" key={cues.idCuestionario}>
+                                <div className="card-fila-superior">
+                                    <span className="card-titulo">
+                                        {cues.titulo}
+                                        {rol === 'tutor' && cues.materia && (
+                                            <span style={{ fontSize: '0.7em', color: '#aaa', marginLeft: '10px' }}>
+                                                ({cues.materia})
+                                            </span>
+                                        )}
+                                    </span>
+
+                                    {rol === 'profesor' && (
+                                        <div className="card-iconos">
+                                            <button
+                                                className="btn-icon-trash"
+                                                disabled={disableTrash || cargando}
+                                                onClick={() => onEliminar(cues.idCuestionario, cues.titulo)}
+                                            >
+                                                🗑
+                                            </button>
+                                            <button
+                                                className="btn-icon-edit"
+                                                disabled={disableEdit || cargando}
+                                                onClick={() => onEditar(cues)}
+                                            >
+                                                ✎
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="card-metadata">
+                                    <div className="metadata-textos">
+                                        <span>Nº preguntas: {cues.cantPreguntas}</span>
+                                        {estado === 'FINALIZADO' && (
+                                            <span>
+                                                Puntaje: "{cues.puntajeObtenido}" (
+                                                {cues.aprobado ? 'Aprobado' : 'Desaprobado'})
+                                            </span>
+                                        )}
+                                        <span style={{ color: colorEstado }}>{estado.replace('_', ' ')}</span>
+                                        {estado !== 'PENDIENTE' && (
+                                            <span>Fecha de inicio: {formatearFecha(cues.fechaInicio)}</span>
+                                        )}
+                                    </div>
+
+                                    <div className="metadata-botones-estado">
+                                        {rol === 'profesor' ? (
+                                            <>
+                                                <button
+                                                    className="btn-estado-verde"
+                                                    disabled={cargando}
+                                                    onClick={() => {
+                                                        if (estado === 'FINALIZADO') onRevisar(cues);
+                                                        else onCambiarEstado(cues.idCuestionario, accionApi);
+                                                    }}
+                                                >
+                                                    {txtAccion}
+                                                </button>
+                                                <button
+                                                    className="btn-estado-rojo"
+                                                    disabled={disableRojo || cargando}
+                                                    onClick={() => {
+                                                        if (window.confirm('¿Finalizar?'))
+                                                            onCambiarEstado(cues.idCuestionario, 'finalizar');
+                                                    }}
+                                                >
+                                                    FINALIZAR
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                className="btn-estado-verde"
+                                                disabled={estado !== 'FINALIZADO' || cargando}
+                                                onClick={() => onRevisar(cues)}
+                                            >
+                                                REVISAR
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+
+            <Paginador
+                pagina={pagina}
+                totalPaginas={totalPaginas}
+                onCambiar={onCambiarPagina}
+                deshabilitado={cargando}
+            />
+
+            <button className="btn-volver-bottom" onClick={onVolver} disabled={cargando}>
+                Volver
+            </button>
+        </div>
+    );
+}
+
+// -----------------------------------------------------------------------
+// VISTA EDITOR DE CUESTIONARIO
+// -----------------------------------------------------------------------
+function EditorCuestionario({
+    idEditando,
+    tituloTest,
+    setTituloTest,
+    puntosAprobar,
+    setPuntosAprobar,
+    preguntas,
+    setPreguntas,
+    cargando,
+    onGuardar,
+    onVolver,
+}) {
+    // -----------------------------------------------------------------------
+    // FUNCIONES EXCLUSIVAS DEL EDITOR
+    // -----------------------------------------------------------------------
+
+    const agregarPregunta = () => {
+        if (preguntas.length >= MAX_PREGUNTAS) {
+            alert(`Un cuestionario puede tener como máximo ${MAX_PREGUNTAS} preguntas.`);
+            return;
+        }
+        setPreguntas([
+            ...preguntas,
+            { pregunta: '', correcta: 0, puntaje: 1, puntajeNegativo: 0, opciones: ['', '', '', ''] },
+        ]);
+        setTimeout(() => document.getElementById(`cues-preg-${preguntas.length}`)?.focus(), 100);
+    };
+
+    const eliminarPregunta = (i) => setPreguntas(preguntas.filter((_, idx) => idx !== i));
+
+    const mover = (i, dir) => {
+        const arr = [...preguntas];
+        const dest = i + dir;
+        if (dest >= 0 && dest < arr.length) {
+            [arr[i], arr[dest]] = [arr[dest], arr[i]];
+            setPreguntas(arr);
+        }
+    };
+
+    const actualizarCampo = (i, campo, val) => {
+        const arr = [...preguntas];
+        arr[i][campo] = val;
+        setPreguntas(arr);
+    };
+    const actualizarOpcion = (iP, iO, val) => {
+        const arr = [...preguntas];
+        arr[iP].opciones[iO] = val;
+        setPreguntas(arr);
+    };
+    const aplicarATodas = (campo, val) => setPreguntas(preguntas.map((p) => ({ ...p, [campo]: parseFloat(val) || 0 })));
+
+    const agregarOpcion = (iP) => {
+        const arr = [...preguntas];
+        if (arr[iP].opciones.length < 4) arr[iP].opciones.push('');
+        setPreguntas(arr);
+    };
+
+    const eliminarOpcion = (iP, iO) => {
+        const arr = [...preguntas];
+        arr[iP].opciones.splice(iO, 1);
+        if (arr[iP].correcta === iO) {
+            arr[iP].correcta = Math.max(0, iO - 1);
+        } else if (arr[iP].correcta > iO) {
+            arr[iP].correcta -= 1;
+        }
+        setPreguntas(arr);
+    };
+
+    const inputArchivoRef = useRef(null);
+
+    const cargarDesdeArchivo = (e) => {
+        const archivo = e.target.files[0];
+        e.target.value = '';
+        if (!archivo) return;
+
+        const lector = new FileReader();
+        lector.onload = () => {
+            try {
+                const datos = parsearArchivoCuestionario(lector.result);
+                setTituloTest(datos.titulo);
+                setPuntosAprobar(datos.puntajeParaAprobar);
+                setPreguntas(datos.preguntas);
+            } catch (err) {
+                alert(err.message);
+            }
+        };
+        lector.readAsText(archivo);
+    };
+
+    // -----------------------------------------------------------------------
+    // ELEMENTOS DEL EDITOR
+    // -----------------------------------------------------------------------
+
+    return (
+        <div className="panel-page-container">
+            {/* Título */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
+                <input
+                    type="text"
+                    value={tituloTest}
+                    className="panel-titulo"
+                    onChange={(e) => setTituloTest(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            document.getElementById('cues-preg-0')?.focus();
+                        }
+                    }}
+                    style={{
+                        fontSize: '2.5em',
+                        background: '#222',
+                        color: '#e74c3c',
+                        border: '1px solid #555',
+                        borderRadius: '8px',
+                        padding: '5px 15px',
+                        textAlign: 'center',
+                        fontWeight: 'bold',
+                    }}
+                />
+            </div>
+
+            <p className="panel-desc">Escribe tus preguntas. Puedes agregar hasta {MAX_PREGUNTAS} preguntas.</p>
+
+            {idEditando === null && (
+                <>
+                    <button
+                        className="btn-gris"
+                        disabled={cargando}
+                        onClick={() => inputArchivoRef.current?.click()}
+                        style={{ marginBottom: '20px', padding: '12px 20px' }}
+                    >
+                        📂 Cargar desde archivo
+                    </button>
+                    <input
+                        ref={inputArchivoRef}
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={cargarDesdeArchivo}
+                        hidden
+                    />
+                </>
+            )}
+
+            <div className="contenedor-formularios">
+                {preguntas.map((preg, i) => (
+                    <div className="form-panel" key={i}>
+                        <h3>Pregunta {i + 1}</h3>
+                        <div className="controles-preg">
+                            <button className="btn-preg" onClick={() => mover(i, -1)}>
+                                ▲
+                            </button>
+                            <button className="btn-preg" onClick={() => mover(i, 1)}>
+                                ▼
+                            </button>
+                            <button className="btn-preg btn-preg-rojo" onClick={() => eliminarPregunta(i)}>
+                                X
+                            </button>
+                        </div>
+
+                        <input
+                            id={`cues-preg-${i}`}
+                            type="text"
+                            className="pregunta-input"
+                            placeholder="Escribe la pregunta aquí..."
+                            value={preg.pregunta}
+                            enterKeyHint="next"
+                            onChange={(e) => actualizarCampo(i, 'pregunta', e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Tab') {
+                                    e.preventDefault();
+                                    document.getElementById(`cues-preg-${i}-opc-0`)?.focus();
+                                }
+                            }}
+                        />
+
+                        <div className="input-group" style={{ background: '#2c3e50', borderColor: '#2980b9' }}>
+                            <label style={{ color: '#fff', minWidth: '150px' }}>Puntaje a sumar:</label>
+                            <input
+                                type="number"
+                                value={preg.puntaje}
+                                onChange={(e) => {
+                                    const valor = e.target.value;
+                                    if (valor === '' || Number(valor) >= 0) {
+                                        actualizarCampo(i, 'puntaje', valor);
+                                    }
+                                }}
+                            />
+                            <button
+                                className="btn-gris"
+                                onClick={() => aplicarATodas('puntaje', preg.puntaje)}
+                                style={{ margin: 0, padding: '8px 15px' }}
+                            >
+                                Aplicar a todas
+                            </button>
+                        </div>
+
+                        <div className="input-group" style={{ background: '#312424', borderColor: '#c0392b' }}>
+                            <label style={{ color: '#e74c3c', minWidth: '150px' }}>Puntaje a restar:</label>
+                            <input
+                                type="number"
+                                value={preg.puntajeNegativo}
+                                onChange={(e) => {
+                                    const valor = e.target.value;
+                                    if (valor === '' || Number(valor) >= 0) {
+                                        actualizarCampo(i, 'puntajeNegativo', valor);
+                                    }
+                                }}
+                            />
+                            <button
+                                className="btn-gris"
+                                onClick={() => aplicarATodas('puntajeNegativo', preg.puntajeNegativo)}
+                                style={{ margin: 0, padding: '8px 15px' }}
+                            >
+                                Aplicar a todas
+                            </button>
+                        </div>
+
+                        <hr style={{ margin: '20px 0', borderColor: '#333' }} />
+
+                        {preg.opciones.map((opcionTexto, iO) => (
+                            <div className="input-group" key={iO}>
+                                <label>
+                                    <input
+                                        type="radio"
+                                        name={`correcta-${i}`}
+                                        checked={preg.correcta === iO}
+                                        onChange={() => actualizarCampo(i, 'correcta', iO)}
+                                    />{' '}
+                                    Correcta
+                                </label>
+                                <input
+                                    id={`cues-preg-${i}-opc-${iO}`}
+                                    type="text"
+                                    placeholder={`Opción ${iO + 1}`}
+                                    value={opcionTexto}
+                                    onChange={(e) => actualizarOpcion(i, iO, e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (iO < preg.opciones.length - 1) {
+                                                document.getElementById(`cues-preg-${i}-opc-${iO + 1}`)?.focus();
+                                            } else {
+                                                const inputSiguientePregunta = document.getElementById(
+                                                    `cues-preg-${i + 1}`,
+                                                );
+
+                                                if (inputSiguientePregunta) {
+                                                    inputSiguientePregunta.focus();
+                                                } else {
+                                                    document.getElementById('cues-btn-add')?.focus();
+                                                }
+                                            }
+                                        }
+                                    }}
+                                />
+                                {preg.opciones.length > 2 && (
+                                    <button
+                                        className="btn-rojo"
+                                        onClick={() => eliminarOpcion(i, iO)}
+                                        style={{ padding: '8px 12px', margin: 0, flexShrink: 0 }}
+                                    >
+                                        X
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+
+                        {preg.opciones.length < 4 && (
+                            <button
+                                className="btn-gris"
+                                onClick={() => agregarOpcion(i)}
+                                style={{ width: '100%', marginTop: '10px', padding: '10px', background: '#333' }}
+                            >
+                                + Agregar otra opción
+                            </button>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            <div className="caja-aprobacion">
+                <label>Puntaje necesario para aprobar:</label>
+                <input
+                    type="number"
+                    value={puntosAprobar}
+                    onChange={(e) => {
+                        const valor = e.target.value;
+                        if (valor === '' || Number(valor) >= 0) {
+                            setPuntosAprobar(valor);
+                        }
+                    }}
+                />
+            </div>
+
+            <div className="botones-finales">
+                <button
+                    id="cues-btn-add"
+                    className="btn-amarillo"
+                    onClick={agregarPregunta}
+                    disabled={cargando}
+                    style={{ marginTop: '10px', padding: '15px' }}
+                >
+                    + AÑADIR PREGUNTA
+                </button>
+                <button
+                    className="btn-verde"
+                    onClick={onGuardar}
+                    disabled={cargando}
+                    style={{ marginTop: '10px', padding: '15px', opacity: cargando ? 0.7 : 1 }}
+                >
+                    {cargando ? 'GUARDANDO...' : 'GUARDAR CUESTIONARIO'}
+                </button>
+                <button
+                    className="btn-gris"
+                    disabled={cargando}
+                    onClick={onVolver}
+                    style={{ marginTop: '10px', padding: '15px' }}
+                >
+                    VOLVER SIN GUARDAR
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// -----------------------------------------------------------------------
+// VISTA DE REVISIÓN DE CUESTIONARIO
+// -----------------------------------------------------------------------
+function RevisionCuestionario({ cuestionario, preguntas, cargando, onVolver }) {
+    return (
+        <div className="panel-menu-container">
+            <div className="revision-container">
+                <h1 className="revision-titulo-principal">{cuestionario.titulo}</h1>
+
+                <div className="revision-lista-preguntas">
+                    {preguntas.length === 0 ? (
+                        <p style={{ color: '#fff', textAlign: 'center' }}>No hay respuestas para mostrar.</p>
+                    ) : (
+                        preguntas.map((resp) => (
+                            <div
+                                className="revision-card-pregunta"
+                                key={resp.idPregunta}
+                                style={{ borderLeftColor: resp.fueCorrecto ? '#27ae60' : '#e74c3c' }}
+                            >
+                                <h3 className="revision-consigna">{resp.pregunta}</h3>
+                                <div className="revision-detalle">
+                                    <div>
+                                        <p className="revision-elegida">
+                                            <span className="revision-label">Opción elegida:</span>{' '}
+                                            {resp.opcionElegida || 'Sin responder'}
+                                        </p>
+                                        {!resp.fueCorrecto && (
+                                            <p className="revision-elegida" style={{ marginTop: '5px' }}>
+                                                <span className="revision-label">Opción correcta era:</span>{' '}
+                                                {resp.opcionCorrecta}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <p
+                                        className="revision-puntaje-individual"
+                                        style={{ color: resp.fueCorrecto ? '#2ecc71' : '#e74c3c' }}
+                                    >
+                                        {resp.fueCorrecto
+                                            ? `+${resp.puntajeCorrecta}`
+                                            : resp.puntajeIncorrecta > 0
+                                              ? `-${resp.puntajeIncorrecta}`
+                                              : `0`}{' '}
+                                        pts
+                                    </p>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <div className="revision-footer">
+                    <div
+                        className="revision-total-box"
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '5px' }}
+                    >
+                        <div>
+                            <span className="revision-total-texto">Fecha de inicio: </span>
+                            <span className="revision-total-numero" style={{ fontSize: '1.1em' }}>
+                                {formatearFecha(cuestionario.fechaInicio)}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="revision-total-texto">Tiempo utilizado: </span>
+                            <span className="revision-total-numero" style={{ fontSize: '1.1em' }}>
+                                {formatearTiempo(cuestionario.tiempoSegundos)}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="revision-total-texto">Puntaje Total: </span>
+                            <span className="revision-total-numero">{cuestionario.puntajeObtenido}</span>
+                            <span
+                                className="revision-total-estado"
+                                style={{ color: cuestionario.aprobado ? '#2ecc71' : '#e74c3c', marginLeft: '5px' }}
+                            >
+                                ({cuestionario.aprobado ? 'Aprobado' : 'Desaprobado'})
+                            </span>
+                        </div>
+                    </div>
+                    <button className="btn-volver-bottom" onClick={onVolver} disabled={cargando}>
+                        Volver
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// -----------------------------------------------------------------------
+// COMPONENTE PRINCIPAL
+// -----------------------------------------------------------------------
+function PantallaCuestionario() {
+    // -----------------------------------------------------------------------
+    // SESION Y NAVEGACIÓN
+    // -----------------------------------------------------------------------
+    const navigate = useNavigate();
+    const rol = localStorage.getItem('rol');
+
+    const [vista, setVista] = useState('lista');
+    const [cargando, setCargando] = useState(false);
+
+    // -----------------------------------------------------------------------
+    // ESTADOS AUXILIARES
+    // -----------------------------------------------------------------------
+    const [cuestionarios, setCuestionarios] = useState([]);
+    const [pagina, setPagina] = useState(1);
+    const [totalPaginas, setTotalPaginas] = useState(1);
+
+    // Editor
+    const [idEditando, setIdEditando] = useState(null);
+    const [tituloTest, setTituloTest] = useState('Nuevo Cuestionario');
+    const [puntosAprobar, setPuntosAprobar] = useState(1);
+    const [preguntas, setPreguntas] = useState([]);
+
+    // Revisión
+    const [cuestionarioRevision, setCuestionarioRevision] = useState(null);
+    const [preguntasRevision, setPreguntasRevision] = useState([]);
+
+    // -----------------------------------------------------------------------
+    // FUNCIONES DE LA VISTA "LISTAR"
+    // -----------------------------------------------------------------------
+    useEffect(() => {
+        cargarCuestionarios(1);
+    }, []);
+
+    /**
+     * Carga una página de la lista. Si esa página ya no existe (por ejemplo,
+     * se borró el único cuestionario de la última página), carga la última que sí existe.
+     * @param {number} p Página a cargar (por defecto, la actual).
+     */
+    const cargarCuestionarios = async (p = pagina) => {
+        setCargando(true);
+        try {
+            const data = await getCuestionarios(p);
+            const total = data.totalPaginas || 1;
+
+            if (p > total) {
+                await cargarCuestionarios(total);
+                return;
+            }
+
+            setCuestionarios(data.cuestionarios || []);
+            setPagina(p);
+            setTotalPaginas(total);
+        } catch (error) {
+            alert(error.message || 'Error al cargar cuestionarios.');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    const cambiarEstado = async (id, accion) => {
+        setCargando(true);
+        try {
+            let payload = {};
+            if (accion === 'iniciar') {
+                payload = { timestampMs: Date.now(), fechaISO: new Date().toISOString() };
+            }
+
+            await cambiarEstadoCuestionario(id, accion, payload);
+            await cargarCuestionarios(); // Recargamos la lista
+        } catch (error) {
+            alert(error.message || 'Error.');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    const eliminarCuestionario = async (id, titulo) => {
+        if (!window.confirm(`¿Eliminar "${titulo}"?`)) return;
+        setCargando(true);
+        try {
+            await eliminarCuestionarioPorId(id);
+            await cargarCuestionarios();
+        } catch (error) {
+            alert(error.message || 'Error al eliminar.');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    // -----------------------------------------------------------------------
+    // FUNCIONES DE TRANSICIÓN DE VISTAS
+    // -----------------------------------------------------------------------
+
+    const abrirRevision = async (cues) => {
+        setCargando(true);
+        try {
+            const data = await getRevisionCuestionario(cues.idCuestionario);
+            setCuestionarioRevision({ ...cues, tiempoSegundos: data.tiempoSegundos || 0 });
+            setPreguntasRevision(data.preguntas || []);
+            setVista('revision');
+        } catch (error) {
+            alert(error.message || 'Error al cargar revisión.');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    const iniciarNuevo = () => {
+        setIdEditando(null);
+        setTituloTest('Nuevo Cuestionario');
+        setPuntosAprobar(1);
+        setPreguntas([{ pregunta: '', correcta: 0, puntaje: 1, puntajeNegativo: 0, opciones: ['', '', '', ''] }]);
+        setVista('editor');
+    };
+
+    const abrirEditor = async (cues) => {
+        setCargando(true);
+        try {
+            const data = await getCuestionarioCompleto(cues.idCuestionario);
+            setTituloTest(data.titulo);
+            setPuntosAprobar(data.puntajeParaAprobar);
+            setPreguntas(
+                (data.preguntas || []).map((p) => ({
+                    pregunta: p.pregunta || '',
+                    puntaje: p.puntajeCorrecta || 1,
+                    puntajeNegativo: p.puntajeIncorrecta || 0,
+                    correcta: p.opciones ? p.opciones.findIndex((o) => o.esCorrecta) : 0,
+                    opciones: p.opciones ? p.opciones.map((o) => o.opcion) : ['', ''],
+                })),
+            );
+            setIdEditando(cues.idCuestionario);
+            setVista('editor');
+        } catch (error) {
+            alert(error.message || 'Error al cargar datos.');
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    // -----------------------------------------------------------------------
+    // GUARDAR CUESTIONARIO (NUEVO O EDITADO)
+    // -----------------------------------------------------------------------
+
+    const guardar = async () => {
+        if (preguntas.length > MAX_PREGUNTAS) {
+            return alert(
+                `Un cuestionario puede tener como máximo ${MAX_PREGUNTAS} preguntas (tiene ${preguntas.length}).`,
+            );
+        }
+
+        const incompleta = preguntas.some(
+            (p) => !p.pregunta.trim() || p.opciones.length < 2 || p.opciones.some((o) => !o.trim()),
+        );
+        if (incompleta) return alert('Revisa el formulario. Hay preguntas u opciones vacías.');
+
+        setCargando(true);
+        const payload = {
+            titulo: tituloTest,
+            puntajeParaAprobar: parseFloat(puntosAprobar),
+            preguntas: preguntas.map((p) => ({
+                pregunta: p.pregunta.trim(),
+                puntajeCorrecta: parseFloat(p.puntaje),
+                puntajeIncorrecta: parseFloat(p.puntajeNegativo),
+                opciones: p.opciones.map((texto, idx) => ({ opcion: texto.trim(), esCorrecta: idx === p.correcta })),
+            })),
+        };
+
+        try {
+            if (idEditando !== null) {
+                await editarCuestionario(idEditando, payload);
+            } else {
+                await crearCuestionario(payload);
+            }
+            alert('¡Guardado con éxito!');
+            // Uno nuevo aparece primero (página 1); al editar se queda en la página actual
+            await cargarCuestionarios(idEditando !== null ? pagina : 1);
+            setVista('lista');
+        } catch (error) {
+            alert(error.message || 'Error al guardar.');
+        } finally {
+            setCargando(false);
+        }
+    };
+    // -----------------------------------------------------------------------
+    // RENDERIZADO DE VISTAS
+    // -----------------------------------------------------------------------
+    if (vista === 'lista') {
+        return (
+            <ListaCuestionarios
+                cuestionarios={cuestionarios}
+                rol={rol}
+                cargando={cargando}
+                pagina={pagina}
+                totalPaginas={totalPaginas}
+                onCambiarPagina={cargarCuestionarios}
+                onNuevo={iniciarNuevo}
+                onEditar={abrirEditor}
+                onEliminar={eliminarCuestionario}
+                onCambiarEstado={cambiarEstado}
+                onRevisar={abrirRevision}
+                onVolver={() => navigate('/panel')}
+            />
+        );
+    }
+
+    if (vista === 'editor') {
+        return (
+            <EditorCuestionario
+                idEditando={idEditando}
+                tituloTest={tituloTest}
+                setTituloTest={setTituloTest}
+                puntosAprobar={puntosAprobar}
+                setPuntosAprobar={setPuntosAprobar}
+                preguntas={preguntas}
+                setPreguntas={setPreguntas}
+                cargando={cargando}
+                onGuardar={guardar}
+                onVolver={() => {
+                    if (window.confirm('¿Volver sin guardar?')) setVista('lista');
+                }}
+            />
+        );
+    }
+
+    if (vista === 'revision') {
+        return (
+            <RevisionCuestionario
+                cuestionario={cuestionarioRevision}
+                preguntas={preguntasRevision}
+                cargando={cargando}
+                onVolver={() => {
+                    setCuestionarioRevision(null);
+                    setVista('lista');
+                }}
+            />
+        );
+    }
+
+    return null;
+}
+
+export default PantallaCuestionario;
